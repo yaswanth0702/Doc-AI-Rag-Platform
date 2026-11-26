@@ -83,6 +83,10 @@ def show_source(number, source, key):
         st.rerun()
 
 
+def save_note(entry, widget_key):
+    entry["note"] = st.session_state[widget_key].strip()
+
+
 def notebook_markdown():
     lines = [f"# {document['name']} · Reading notes"]
     for number, entry in enumerate(bookmarks.values(), 1):
@@ -175,10 +179,10 @@ if view == "Notebook":
             st.text(source_label(number, source))
             st.write(source.get("passage") or source["snippet"])
             with st.form(f"note:{key}"):
-                note = st.text_area("My note", value=entry["note"], placeholder="Add an observation or a follow-up question.")
-                if st.form_submit_button("Save note"):
-                    entry["note"] = note.strip()
-                    st.rerun()
+                widget_key = f"draft:{key}"
+                st.text_area("My note", value=entry["note"], key=widget_key,
+                             placeholder="Add an observation or a follow-up question.")
+                st.form_submit_button("Save note", on_click=save_note, args=(entry, widget_key))
             st.button("Remove from notebook", key=f"remove:{key}",
                       on_click=bookmarks.pop, args=(passage_id, None))
     st.stop()
