@@ -1,16 +1,50 @@
 import os
+import re
 from typing import List, Dict, Any
 
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
 from .chunking import chunk_text, clean_text
 
+def recover_pdf_spacing(page, text: str) -> str:
+    """Use layout positions to recover missing spaces, retaining plain reading order."""
+    if not text.strip():
+        return text
+    try:
+        layout = page.extract_text(extraction_mode="layout", layout_mode_space_vertically=False)
+    except (PyPdfError, ValueError, KeyError, IndexError, TypeError, ZeroDivisionError):
+        return text
+
+    # Columns and rotated text can produce different reading orders. Only transfer
+    # word boundaries when both extractors agree on every non-whitespace character.
+    if not layout or "".join(layout.split()) != "".join(text.split()):
+        return text
+    boundaries = set()
+    offset = 0
+    for word in layout.split():
+        offset += len(word)
+        boundaries.add(offset)
+
+    pieces = []
+    offset = 0
+    for token in re.findall(r"\s+|\S+", text):
+        if token.isspace():
+            pieces.append(token)
+            continue
+        for i, char in enumerate(token):
+            if i and offset in boundaries:
+                pieces.append(" ")
+            pieces.append(char)
+            offset += 1
+    return "".join(pieces)
+
+
 def read_pdf_pages(path: str) -> List[Dict[str, Any]]:
     reader = PdfReader(path)
     pages = []
     for i, page in enumerate(reader.pages):
         txt = page.extract_text() or ""
-        pages.append({"page": i + 1, "text": clean_text(txt)})
+        pages.append({"page": i + 1, "text": clean_text(recover_pdf_spacing(page, txt))})
     return pages
 
 def read_txt(path: str) -> str:

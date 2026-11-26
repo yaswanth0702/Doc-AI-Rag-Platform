@@ -64,3 +64,7 @@ API clients can send `POST /search` with the document bearer token and a JSON bo
 ## Reading notebook
 
 Use **Save passage** under a chat citation or a passage search result. Open **Notebook** to revisit the source, add a personal note, or remove the bookmark. Saving the same passage from both views creates one entry. The notebook follows the selected document version. **Download reading notes** exports the saved passages, available PDF page numbers, and saved notes as Markdown. Download a copy before ending the Streamlit session.
+
+### Passage boundaries and PDF spacing
+
+New uploads are split at line, bullet, or sentence boundaries when possible. Long sentences fall back to word boundaries. Each passage stays within a single PDF page and within the 900-character limit. For PDF text, the layout extractor can supply missing spaces when it agrees with the plain extractor on character order. Re-upload an existing document to build a new index with these changes.
