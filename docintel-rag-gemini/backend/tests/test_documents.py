@@ -188,3 +188,37 @@ class DocumentTests(unittest.TestCase):
             headers={"Authorization": "Bearer " + doc["document_token"]},
         )
         self.assertEqual(answer.json()["citations"][0]["chunk_id"], passages[0]["chunk_id"])
+
+    def test_gemini_errors_show_safe_specific_guidance(self):
+        doc = self.upload()
+        cases = [
+            (400, "API_KEY_INVALID", "valid GEMINI_API_KEY"),
+            (400, "OTHER_REASON", "request configuration"),
+            (403, "", "Access denied"),
+            (404, "", "GEMINI_MODEL"),
+            (429, "", "quota"),
+            (503, "", "server error"),
+        ]
+        for status, reason, expected in cases:
+            with self.subTest(status=status, reason=reason):
+                upstream = requests.Response()
+                upstream.status_code = status
+                upstream.json = Mock(return_value={"error": {
+                    "message": "private upstream detail",
+                    "details": [{"reason": reason}],
+                }})
+                self.provider.return_value = upstream
+                response = self.ask(doc)
+                self.assertEqual(response.status_code, 503)
+                detail = response.json()["detail"]
+                self.assertIn(f"Gemini API returned HTTP {status}", detail)
+                self.assertIn(expected, detail)
+                self.assertNotIn("private upstream detail", detail)
+
+    def test_gemini_transport_errors_are_distinguishable(self):
+        doc = self.upload()
+        for exc, expected in [(requests.Timeout(), "timed out"), (requests.ConnectionError(), "internet connection")]:
+            self.provider.side_effect = exc
+            response = self.ask(doc)
+            self.assertEqual(response.status_code, 503)
+            self.assertIn(expected, response.json()["detail"])
