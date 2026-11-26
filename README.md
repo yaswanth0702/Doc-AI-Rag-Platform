@@ -52,3 +52,11 @@ Each document version has its own conversation in the current Streamlit session.
 For a follow-up, turn on **Use the previous exchange for this question**. The backend uses the last question and answer to interpret the new question and retrieves evidence from the active document. Direct API callers can send an optional `previous_turn` object with `question` (up to 600 characters) and `answer` (up to 1,200 characters). Each citation includes the original `snippet` and the full retrieved `passage`.
 
 Choose **Download conversation** to save the active transcript and its source passages as Markdown before ending the browser session.
+
+## Find passages without Gemini
+
+Select a document and open **Find passages**. **Hybrid** combines local embedding similarity with BM25 keyword ranking. Use it for topics or questions. **Exact phrase** finds literal text within individual passages, ignoring case and differences in whitespace. Use it for a name, a quoted phrase, or a reference code such as `INV-1042`. Results show the source text and PDF page when available. Search uses the current document's existing index and can run without a Gemini key.
+
+Chat uses the same hybrid ranking to gather context. The citation `score` field continues to report vector similarity. Passage order reflects the combined ranking.
+
+API clients can send `POST /search` with the document bearer token and a JSON body such as `{"doc_id":"<id>","query":"INV-1042","mode":"exact","limit":6}`. The modes are `hybrid` and `exact`; the optional limit is 1 to 20. Exact results follow document order. Both modes return a `passages` list and make no generation calls.

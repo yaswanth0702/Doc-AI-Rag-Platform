@@ -149,3 +149,42 @@ class DocumentTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
         self.provider.assert_not_called()
+
+    def search(self, doc, query, mode="hybrid", token=None, limit=6):
+        return self.client.post(
+            "/search", json={"doc_id": doc["doc_id"], "query": query, "mode": mode, "limit": limit},
+            headers={"Authorization": "Bearer " + (token or doc["document_token"])},
+        )
+
+    def test_exact_search_works_without_embedding_or_generation(self):
+        doc = self.upload(b"Terms: INV-1042 is payable within thirty\n days.")
+        with patch.object(main, "get_embedder", side_effect=AssertionError("unexpected embedding")):
+            response = self.search(doc, "THIRTY days", "exact")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("INV-1042", response.json()["passages"][0]["passage"])
+            self.assertEqual(self.search(doc, "INV-9999", "exact").json()["passages"], [])
+        self.provider.assert_not_called()
+
+    def test_search_access_limits_and_empty_queries(self):
+        first, second = self.upload(), self.upload()
+        for mode in ("exact", "hybrid"):
+            self.assertEqual(self.search(first, "notes", mode, second["document_token"]).status_code, 404)
+        self.assertEqual(self.search(first, "  ").status_code, 422)
+        self.assertEqual(self.search(first, "notes", limit=21).status_code, 422)
+        self.provider.assert_not_called()
+
+    def test_hybrid_prioritizes_matching_code_and_ask_uses_same_source(self):
+        # With tied mock vectors FAISS alone puts the final chunk first.
+        data = "INV-1042 is payable in thirty days. " + "ordinary text " * 170
+        doc = self.upload(data.encode())
+        response = self.search(doc, "INV-1042", limit=1)
+        self.assertEqual(response.status_code, 200)
+        passages = response.json()["passages"]
+        self.assertEqual(len(passages), 1)
+        self.assertIn("INV-1042", passages[0]["passage"])
+        self.provider.assert_not_called()
+        answer = self.client.post(
+            "/ask", json={"doc_id": doc["doc_id"], "question": "INV-1042"},
+            headers={"Authorization": "Bearer " + doc["document_token"]},
+        )
+        self.assertEqual(answer.json()["citations"][0]["chunk_id"], passages[0]["chunk_id"])

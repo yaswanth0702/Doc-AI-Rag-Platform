@@ -99,6 +99,36 @@ with st.sidebar:
             file_name=f"{Path(document['name']).stem}-conversation.md", mime="text/markdown",
         )
 
+view = st.radio("Workspace", ["Chat", "Find passages"], horizontal=True, label_visibility="collapsed")
+if view == "Find passages":
+    with st.form(f"search:{api_url}:{selected}"):
+        search_query = st.text_input("Search this document", placeholder="Enter a concept, name, or reference code")
+        mode = st.radio("Search method", ["Hybrid", "Exact phrase"], horizontal=True,
+                        help="Hybrid combines meaning and keywords. Exact phrase matches text across spaces and line breaks.")
+        submitted = st.form_submit_button("Find passages", type="primary")
+    if submitted:
+        query = search_query.strip()
+        if query:
+            with st.spinner("Searching this document…"):
+                result = post(
+                    "/search", json={"doc_id": selected, "query": query, "mode": "exact" if mode == "Exact phrase" else "hybrid"},
+                    headers={"Authorization": f"Bearer {document['token']}"},
+                )
+            if result is not None:
+                document["search"] = {"query": query, "mode": mode, "passages": result["passages"]}
+        else:
+            st.info("Enter a phrase or topic to search.")
+    last_search = document.get("search")
+    if last_search:
+        st.caption(f"{last_search['mode']} results for “{last_search['query']}”")
+        if not last_search["passages"]:
+            st.info("No matching passages. Try a shorter phrase or switch to Hybrid.")
+        for number, source in enumerate(last_search["passages"], 1):
+            with st.container(border=True):
+                st.text(source_label(number, source))
+                st.write(source["passage"])
+    st.stop()
+
 for turn in turns:
     render_turn(turn)
 

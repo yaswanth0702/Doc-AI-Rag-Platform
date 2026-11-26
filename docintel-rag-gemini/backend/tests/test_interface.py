@@ -46,3 +46,31 @@ class InterfaceTests(unittest.TestCase):
             app.selectbox[0].select("second").run()
             self.assertEqual(len(app.chat_message), 4)
             self.assertFalse(app.exception)
+
+    def test_passage_search_uses_active_document_and_leaves_chat_alone(self):
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[2] / "ui" / "streamlit_app.py")).run()
+        app.session_state["documents"] = {"http://localhost:8000": {
+            "first": {"name": "first.txt", "token": "first-token"},
+            "second": {"name": "second.txt", "token": "second-token"},
+        }}
+        app.run()
+        app.radio[0].set_value("Find passages").run()
+        app.radio[1].set_value("Exact phrase")
+        next(w for w in app.text_input if w.label == "Search this document").input("INV-1042")
+        response = Mock()
+        response.json.return_value = {"passages": [
+            {"source_name": "second.txt", "page": None, "passage": "Payment for INV-1042"}
+        ]}
+        with patch("requests.post", return_value=response) as request:
+            next(w for w in app.button if w.label == "Find passages").click().run()
+            self.assertTrue(request.call_args.args[0].endswith("/search"))
+            self.assertEqual(request.call_args.kwargs["json"], {"doc_id": "second", "query": "INV-1042", "mode": "exact"})
+            self.assertEqual(request.call_args.kwargs["headers"]["Authorization"], "Bearer second-token")
+            self.assertTrue(any("Payment for INV-1042" in w.value for w in app.markdown))
+            app.selectbox[0].select("first").run()
+            self.assertFalse(any("INV-1042" in w.value for w in app.markdown))
+            app.selectbox[0].select("second").run()
+            app.radio[0].set_value("Chat").run()
+            self.assertFalse(app.chat_message)
+            self.assertEqual(request.call_count, 1)
+        self.assertFalse(app.exception)

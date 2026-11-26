@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal, Annotated
+from pydantic import StringConstraints
 
 class IngestResponse(BaseModel):
     doc_id: str
@@ -16,14 +17,25 @@ class AskRequest(BaseModel):
     previous_turn: Optional[PreviousTurn] = None
     question: str = Field(..., min_length=1)
 
-class Citation(BaseModel):
+class SearchRequest(BaseModel):
+    doc_id: UUID
+    query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+    mode: Literal["hybrid", "exact"] = "hybrid"
+    limit: int = Field(default=6, ge=1, le=20)
+
+class Passage(BaseModel):
     doc_id: str
     source_name: str
     page: Optional[int] = None
     chunk_id: str
-    score: float
     snippet: str
     passage: Optional[str] = None
+
+class Citation(Passage):
+    score: float
+
+class SearchResponse(BaseModel):
+    passages: List[Passage]
 
 class AskResponse(BaseModel):
     answer: str

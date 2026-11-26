@@ -10,12 +10,12 @@ from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .models import AskRequest, AskResponse, Citation, IngestResponse
+from .models import AskRequest, AskResponse, Citation, IngestResponse, Passage, SearchRequest, SearchResponse
 from .rag.embedder import Embedder
 from .rag.generator import GenerationUnavailable, generate_answer
 from .rag.guardrails import guard_question
 from .rag.ingest import build_chunks_from_file
-from .rag.retriever import Retriever
+from .rag.retriever import Retriever, exact_passages
 from .rag.vector_store import FaissStore
 
 app = FastAPI(title="DocIntel-RAG (Gemini)", version="1.0")
@@ -82,6 +82,35 @@ def ingest(file: UploadFile = File(...)):
     return IngestResponse(doc_id=str(doc_id), document_token=token, chunks_added=added)
 
 
+def document_store(doc_id: UUID, authorization: str | None) -> FaissStore:
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(401, "A document access token is required.", headers={"WWW-Authenticate": "Bearer"})
+    path = index_path(doc_id, token)
+    if not path.is_dir():
+        raise HTTPException(404, "Document unavailable.")
+    return FaissStore(str(path))
+
+
+def passage_fields(row):
+    text = row["text"]
+    return {
+        "doc_id": row["doc_id"], "source_name": row["source_name"], "page": row.get("page"),
+        "chunk_id": row["chunk_id"], "snippet": text[:220] + ("…" if len(text) > 220 else ""),
+        "passage": text,
+    }
+
+
+@app.post("/search", response_model=SearchResponse)
+def search(req: SearchRequest, authorization: str | None = Header(default=None)):
+    store = document_store(req.doc_id, authorization)
+    if req.mode == "exact":
+        rows = exact_passages(req.query, store.metadata, req.limit)
+    else:
+        rows = Retriever(store, get_embedder(), top_k=req.limit).retrieve(req.query)
+    return SearchResponse(passages=[Passage(**passage_fields(row)) for row in rows])
+
+
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest, authorization: str | None = Header(default=None)):
     ok, msg = guard_question(req.question)
@@ -90,14 +119,8 @@ def ask(req: AskRequest, authorization: str | None = Header(default=None)):
     if req.doc_id is None:
         return AskResponse(answer="Upload and select a document before asking a question.", citations=[])
 
-    scheme, _, token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        raise HTTPException(401, "A document access token is required.", headers={"WWW-Authenticate": "Bearer"})
-    path = index_path(req.doc_id, token)
-    if not path.is_dir():
-        raise HTTPException(404, "Document unavailable.")
-
-    retriever = Retriever(FaissStore(str(path)), get_embedder(), top_k=settings.top_k)
+    store = document_store(req.doc_id, authorization)
+    retriever = Retriever(store, get_embedder(), top_k=settings.top_k)
     query = req.question
     if req.previous_turn:
         query = f"{req.question}\nPrevious question: {req.previous_turn.question[:240]}\n{req.previous_turn.answer[:320]}"
@@ -109,16 +132,7 @@ def ask(req: AskRequest, authorization: str | None = Header(default=None)):
     except GenerationUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
 
-    citations = []
-    for r in retrieved:
-        snippet = r["text"]
-        if len(snippet) > 220:
-            snippet = snippet[:220] + "…"
-        citations.append(Citation(
-            doc_id=r["doc_id"], source_name=r["source_name"], page=r.get("page"),
-            chunk_id=r["chunk_id"], score=r["score"], snippet=snippet, passage=r["text"],
-        ))
-
+    citations = [Citation(**passage_fields(row), score=row["score"]) for row in retrieved]
     return AskResponse(answer=answer, citations=citations, debug={
         "top_k": settings.top_k, "embedding_model": settings.embedding_model,
         "llm_provider": "gemini", "gemini_model": settings.gemini_model,
