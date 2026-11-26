@@ -3,6 +3,7 @@ import requests
 from urllib.parse import quote
 
 from ..config import settings
+from ..models import PreviousTurn
 from .citations import format_context
 from .guardrails import redact_pii
 
@@ -47,14 +48,20 @@ def _gemini_generate(prompt: str) -> str:
     raise GenerationUnavailable("Gemini returned no answer for this question.")
 
 
-def generate_answer(question: str, retrieved: List[Dict[str, Any]]) -> str:
+def generate_answer(question: str, retrieved: List[Dict[str, Any]], previous_turn: PreviousTurn | None = None) -> str:
     context = format_context(retrieved)
-    prompt = f"""Context:
+    history = ""
+    if previous_turn:
+        history = (
+            "Previous exchange (only for interpreting the current question):\n"
+            f"Question: {previous_turn.question}\nAnswer: {previous_turn.answer}\n\n"
+        )
+    prompt = f"""{history}Document passages:
 {context}
 
 Question: {question}
 
-Write the answer using ONLY the context. Add citations like [1] [2]."""
+Support the answer only with the numbered document passages above. Cite their numbers like [1] [2]."""
 
     out = _gemini_generate(prompt)
     return redact_pii(out)
