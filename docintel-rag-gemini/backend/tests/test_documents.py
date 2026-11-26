@@ -121,3 +121,31 @@ class DocumentTests(unittest.TestCase):
         result = self.ask(self.upload(pdf.getvalue(), "paper.pdf"))
         self.assertEqual(result.json()["citations"][0]["page"], 2)
         self.assertEqual(result.json()["citations"][0]["snippet"], "Sample passage")
+
+    def test_follow_up_retrieves_with_previous_turn_and_returns_full_passage(self):
+        text = "The invoice is due in thirty days. " * 12
+        doc = self.upload(text.encode())
+        previous = {"question": "What is the payment deadline?", "answer": "Thirty days."}
+        with patch.object(main.Retriever, "retrieve", autospec=True, side_effect=main.Retriever.retrieve) as retrieve:
+            response = self.client.post(
+                "/ask", json={"doc_id": doc["doc_id"], "question": "When does it start?", "previous_turn": previous},
+                headers={"Authorization": "Bearer " + doc["document_token"]},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn(previous["question"], retrieve.call_args.args[1])
+        self.assertIn(previous["answer"], retrieve.call_args.args[1])
+        prompt = self.provider.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
+        self.assertIn(previous["answer"], prompt)
+        citation = response.json()["citations"][0]
+        self.assertEqual(citation["passage"], text.strip())
+        self.assertLess(len(citation["snippet"]), len(citation["passage"]))
+
+    def test_history_length_is_validated(self):
+        doc = self.upload()
+        response = self.client.post(
+            "/ask", json={"doc_id": doc["doc_id"], "question": "Explain?",
+                          "previous_turn": {"question": "old", "answer": "x" * 1201}},
+            headers={"Authorization": "Bearer " + doc["document_token"]},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.provider.assert_not_called()

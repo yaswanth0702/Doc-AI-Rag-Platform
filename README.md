@@ -24,7 +24,7 @@ cd docintel-rag-gemini/backend
 .venv/bin/python -m streamlit run ../ui/streamlit_app.py
 ```
 
-On Windows use `.\.venv\Scripts\python.exe` in the last command. Open the Streamlit address shown in the terminal, upload a file, click **Ingest**, then ask a question about the selected document.
+On Windows use `.\.venv\Scripts\python.exe` in the last command. Open the Streamlit address shown in the terminal, upload a file, click **Add document**, then ask a question about the selected document.
 
 ## API and existing documents
 
@@ -44,3 +44,11 @@ python -m unittest discover -s tests
 ```
 
 The tests use temporary storage and local FAISS indexes. Embeddings and Gemini responses are supplied by the tests so they can run offline.
+
+## Working with a document
+
+Each document version has its own conversation in the current Streamlit session. Open **View sources** beneath an answer to match its numbered references to the retrieved passages. PDF sources include page numbers. Switch documents in the sidebar to return to an earlier conversation.
+
+For a follow-up, turn on **Use the previous exchange for this question**. The backend uses the last question and answer to interpret the new question and retrieves evidence from the active document. Direct API callers can send an optional `previous_turn` object with `question` (up to 600 characters) and `answer` (up to 1,200 characters). Each citation includes the original `snippet` and the full retrieved `passage`.
+
+Choose **Download conversation** to save the active transcript and its source passages as Markdown before ending the browser session.

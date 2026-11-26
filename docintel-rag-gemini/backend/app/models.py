@@ -7,8 +7,13 @@ class IngestResponse(BaseModel):
     document_token: str
     chunks_added: int
 
+class PreviousTurn(BaseModel):
+    question: str = Field(..., min_length=1, max_length=600)
+    answer: str = Field(..., min_length=1, max_length=1200)
+
 class AskRequest(BaseModel):
     doc_id: Optional[UUID] = None
+    previous_turn: Optional[PreviousTurn] = None
     question: str = Field(..., min_length=1)
 
 class Citation(BaseModel):
@@ -18,6 +23,7 @@ class Citation(BaseModel):
     chunk_id: str
     score: float
     snippet: str
+    passage: Optional[str] = None
 
 class AskResponse(BaseModel):
     answer: str

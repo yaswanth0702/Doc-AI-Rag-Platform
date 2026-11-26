@@ -98,11 +98,14 @@ def ask(req: AskRequest, authorization: str | None = Header(default=None)):
         raise HTTPException(404, "Document unavailable.")
 
     retriever = Retriever(FaissStore(str(path)), get_embedder(), top_k=settings.top_k)
-    retrieved = retriever.retrieve(req.question)
+    query = req.question
+    if req.previous_turn:
+        query = f"{req.question}\nPrevious question: {req.previous_turn.question[:240]}\n{req.previous_turn.answer[:320]}"
+    retrieved = retriever.retrieve(query)
     if not retrieved:
         return AskResponse(answer="No passages were found in this document.", citations=[])
     try:
-        answer = generate_answer(req.question, retrieved)
+        answer = generate_answer(req.question, retrieved, req.previous_turn)
     except GenerationUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
 
@@ -113,7 +116,7 @@ def ask(req: AskRequest, authorization: str | None = Header(default=None)):
             snippet = snippet[:220] + "…"
         citations.append(Citation(
             doc_id=r["doc_id"], source_name=r["source_name"], page=r.get("page"),
-            chunk_id=r["chunk_id"], score=r["score"], snippet=snippet,
+            chunk_id=r["chunk_id"], score=r["score"], snippet=snippet, passage=r["text"],
         ))
 
     return AskResponse(answer=answer, citations=citations, debug={
