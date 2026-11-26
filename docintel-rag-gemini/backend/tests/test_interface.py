@@ -74,3 +74,43 @@ class InterfaceTests(unittest.TestCase):
             self.assertFalse(app.chat_message)
             self.assertEqual(request.call_count, 1)
         self.assertFalse(app.exception)
+
+    def test_notebook_collects_sources_notes_and_exports_by_document(self):
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[2] / "ui" / "streamlit_app.py")).run()
+        source = {"source_name": "paper.pdf", "page": 2, "chunk_id": "p2c1", "passage": "The library closes at eight."}
+        app.session_state["documents"] = {"http://localhost:8000": {
+            "other": {"name": "paper.pdf", "token": "other-token"},
+            "active": {
+                "name": "paper.pdf", "token": "private-token",
+                "turns": [{"question": "When?", "answer": "Eight [1].", "citations": [source]}],
+                "search": {"query": "hours", "mode": "Hybrid", "passages": [source]},
+            },
+        }}
+        def button(label):
+            return next(b for b in app.button if b.label == label)
+
+        app.run()
+        button("Save passage").click().run()
+        app.radio[0].set_value("Find passages").run()
+        self.assertTrue(button("Saved to notebook").disabled)
+        app.radio[0].set_value("Notebook").run()
+        self.assertEqual(len(app.text_area), 1)
+        app.text_area[0].input("Confirm Friday hours.")
+        with patch.object(st, "download_button", wraps=st.download_button) as download:
+            button("Save note").click().run()
+            exported = download.call_args.args[1]
+            for expected in ("paper.pdf · Page 2", source["passage"], "Confirm Friday hours."):
+                self.assertIn(expected, exported)
+            self.assertNotIn("private-token", exported)
+        app.selectbox[0].select("other").run()
+        self.assertFalse(app.text_area)
+        self.assertFalse(app.get("download_button"))
+        app.selectbox[0].select("active").run()
+        self.assertEqual(app.text_area[0].value, "Confirm Friday hours.")
+        button("Remove from notebook").click().run()
+        self.assertFalse(app.text_area)
+        app.radio[0].set_value("Find passages").run()
+        button("Save passage").click().run()
+        app.radio[0].set_value("Notebook").run()
+        self.assertEqual(app.text_area[0].value, "")
+        self.assertFalse(app.exception)
