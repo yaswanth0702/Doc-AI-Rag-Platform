@@ -60,3 +60,7 @@ Select a document and open **Find passages**. **Hybrid** combines local embeddin
 Chat uses the same hybrid ranking to gather context. The citation `score` field continues to report vector similarity. Passage order reflects the combined ranking.
 
 API clients can send `POST /search` with the document bearer token and a JSON body such as `{"doc_id":"<id>","query":"INV-1042","mode":"exact","limit":6}`. The modes are `hybrid` and `exact`; the optional limit is 1 to 20. Exact results follow document order. Both modes return a `passages` list and make no generation calls.
+
+## Reading notebook
+
+Use **Save passage** under a chat citation or a passage search result. Open **Notebook** to revisit the source, add a personal note, or remove the bookmark. Saving the same passage from both views creates one entry. The notebook follows the selected document version. **Download reading notes** exports the saved passages, available PDF page numbers, and saved notes as Markdown. Download a copy before ending the Streamlit session.
