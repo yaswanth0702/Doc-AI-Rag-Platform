@@ -1,0 +1,123 @@
+import io
+import unittest
+from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
+
+import numpy as np
+import requests
+from fastapi.testclient import TestClient
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+from app import main
+from app.rag import generator
+
+
+class DocumentTests(unittest.TestCase):
+    def setUp(self):
+        temp = TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.uploads = Path(temp.name) / "uploads"
+        self.index = Path(temp.name) / "index"
+        settings = replace(
+            main.settings, uploads_dir=str(self.uploads), index_dir=str(self.index),
+            gemini_api_key="test-only",
+        )
+        self.enterContext(patch.object(main, "settings", settings))
+        self.enterContext(patch.object(generator, "settings", settings))
+        embedder = Mock()
+        embedder.embed_texts.side_effect = lambda texts: np.ones((len(texts), 1), dtype="float32")
+        embedder.embed_query.return_value = np.ones(1, dtype="float32")
+        self.enterContext(patch.object(main, "get_embedder", return_value=embedder))
+        self.provider = self.enterContext(patch.object(generator.requests, "post"))
+        self.provider.return_value.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "From the document [1]."}]}}]
+        }
+        self.client = self.enterContext(TestClient(main.app))
+
+    def upload(self, text=b"original text", name="notes.txt"):
+        response = self.client.post("/ingest", files={"file": (name, text)})
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def ask(self, doc, token=None):
+        return self.client.post(
+            "/ask", json={"question": "What does it say?", "doc_id": doc["doc_id"]},
+            headers={"Authorization": "Bearer " + (token or doc["document_token"])},
+        )
+
+    def test_same_filename_versions_retrieve_only_the_selected_text(self):
+        first = self.upload()
+        second = self.upload(b"updated text")
+        self.assertNotEqual(first["doc_id"], second["doc_id"])
+        self.assertEqual({p.read_bytes() for p in self.uploads.iterdir()}, {b"original text", b"updated text"})
+        for doc, expected in [(first, "original text"), (second, "updated text")]:
+            result = self.ask(doc)
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(result.json()["citations"][0]["snippet"], expected)
+            self.assertEqual(result.json()["citations"][0]["source_name"], "notes.txt")
+            self.assertEqual(result.json()["answer"], "From the document [1].")
+
+    def test_access_is_document_specific(self):
+        first = self.upload()
+        second = self.upload(b"second")
+        self.assertEqual(self.ask(first, second["document_token"]).status_code, 404)
+        response = self.client.post("/ask", json={"doc_id": first["doc_id"], "question": "Summary?"})
+        self.assertEqual(response.status_code, 401)
+        self.provider.assert_not_called()
+
+    def test_no_selection_or_no_hits_skips_generation(self):
+        result = self.client.post("/ask", json={"question": "What does it say?"})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()["citations"], [])
+        doc = self.upload()
+        with patch.object(main.Retriever, "retrieve", return_value=[]):
+            self.assertEqual(self.ask(doc).json()["citations"], [])
+        self.provider.assert_not_called()
+
+    def test_bad_uploads_leave_no_data(self):
+        for name, content in [("bad.pdf", b"incomplete PDF"), ("empty.txt", b" ")]:
+            response = self.client.post("/ingest", files={"file": (name, content)})
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(list(self.uploads.iterdir()), [])
+            self.assertEqual(list(self.index.iterdir()), [])
+
+    def test_index_failure_rolls_back_files(self):
+        with patch.object(main.FaissStore, "add", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                self.upload()
+        self.assertEqual(list(self.uploads.iterdir()), [])
+        self.assertEqual(list(self.index.iterdir()), [])
+
+    def test_missing_key_and_provider_errors_are_service_errors(self):
+        doc = self.upload()
+        with patch.object(generator, "settings", replace(generator.settings, gemini_api_key="")):
+            self.assertEqual(self.ask(doc).status_code, 503)
+            self.provider.assert_not_called()
+        self.provider.side_effect = requests.Timeout()
+        self.assertEqual(self.ask(doc).status_code, 503)
+        self.provider.side_effect = None
+        self.provider.return_value.json.return_value = {"candidates": []}
+        self.assertEqual(self.ask(doc).status_code, 503)
+
+    def test_pdf_passage_retains_page_number(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        page = writer.add_blank_page(width=200, height=200)
+        font = DictionaryObject({
+            NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        })
+        page[NameObject("/Resources")] = DictionaryObject({
+            NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})
+        })
+        stream = DecodedStreamObject()
+        stream.set_data(b"BT /F1 10 Tf 10 40 Td (Sample passage) Tj ET")
+        page[NameObject("/Contents")] = stream
+        pdf = io.BytesIO()
+        writer.write(pdf)
+        result = self.ask(self.upload(pdf.getvalue(), "paper.pdf"))
+        self.assertEqual(result.json()["citations"][0]["page"], 2)
+        self.assertEqual(result.json()["citations"][0]["snippet"], "Sample passage")

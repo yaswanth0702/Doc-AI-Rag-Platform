@@ -1,8 +1,8 @@
 import os
-import uuid
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 
 from pypdf import PdfReader
+from pypdf.errors import PyPdfError
 from .chunking import chunk_text, clean_text
 
 def read_pdf_pages(path: str) -> List[Dict[str, Any]]:
@@ -17,14 +17,16 @@ def read_txt(path: str) -> str:
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         return clean_text(f.read())
 
-def build_chunks_from_file(file_path: str, source_name: str) -> Tuple[str, List[Dict[str, Any]]]:
-    doc_id = str(uuid.uuid4())
+def build_chunks_from_file(file_path: str, source_name: str, doc_id: str) -> List[Dict[str, Any]]:
     ext = os.path.splitext(file_path)[1].lower()
 
     chunks: List[Dict[str, Any]] = []
 
     if ext == ".pdf":
-        pages = read_pdf_pages(file_path)
+        try:
+            pages = read_pdf_pages(file_path)
+        except (PyPdfError, ValueError, KeyError, IndexError, EOFError) as exc:
+            raise ValueError("Cannot read this PDF. Upload a readable, unlocked PDF.") from exc
         for p in pages:
             page_no = p["page"]
             for idx, ch in enumerate(chunk_text(p["text"])):
@@ -46,4 +48,4 @@ def build_chunks_from_file(file_path: str, source_name: str) -> Tuple[str, List[
                 "text": ch,
             })
 
-    return doc_id, chunks
+    return chunks

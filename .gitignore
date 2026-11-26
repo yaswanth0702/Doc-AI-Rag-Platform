@@ -1,1 +1,4 @@
-
+__pycache__/
+.venv/
+.env
+docintel-rag-gemini/backend/app/storage/

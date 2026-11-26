@@ -17,11 +17,8 @@ class Settings:
         "sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    # LLM provider: "gemini" (default), also supports "ollama" and "openai" if you later add keys
-    llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
-
     # Gemini
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 settings = Settings()

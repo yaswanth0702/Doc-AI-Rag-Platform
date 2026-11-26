@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
-import google.generativeai as genai
+import requests
+from urllib.parse import quote
 
 from ..config import settings
 from .citations import format_context
@@ -13,17 +14,38 @@ Rules:
 - Add citations like [1] [2] that refer to the context chunk numbers.
 """
 
+class GenerationUnavailable(RuntimeError):
+    pass
+
+
 def _gemini_generate(prompt: str) -> str:
     if not settings.gemini_api_key:
-        return "Gemini API key not set. Please set GEMINI_API_KEY."
+        raise GenerationUnavailable("Set GEMINI_API_KEY on the backend to enable answers.")
 
-    genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel(settings.gemini_model)
+    model = quote(settings.gemini_model, safe="")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    try:
+        response = requests.post(
+            url,
+            headers={"x-goog-api-key": settings.gemini_api_key},
+            json={
+                "systemInstruction": {"parts": [{"text": SYSTEM_RULES}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            },
+            timeout=(5, 90),
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise GenerationUnavailable("Gemini is unavailable. Check the model, API key and quota.") from exc
 
-    # Gemini doesn't have roles like OpenAI in the same way here, so we prepend rules.
-    response = model.generate_content(f"{SYSTEM_RULES}\n\n{prompt}")
-    text = getattr(response, "text", "") or ""
-    return text.strip()
+    for candidate in data.get("candidates", []):
+        parts = candidate.get("content", {}).get("parts", [])
+        text = "".join(part.get("text", "") for part in parts if not part.get("thought")).strip()
+        if text:
+            return text
+    raise GenerationUnavailable("Gemini returned no answer for this question.")
+
 
 def generate_answer(question: str, retrieved: List[Dict[str, Any]]) -> str:
     context = format_context(retrieved)
