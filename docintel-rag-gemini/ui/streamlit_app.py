@@ -164,7 +164,12 @@ with st.sidebar:
             file_name=f"{Path(document['name']).stem}-conversation.md", mime="text/markdown",
         )
 
-view = st.radio("Workspace", ["Chat", "Find passages", "Notebook"], horizontal=True, label_visibility="collapsed")
+workspace_key = f"workspace:{api_url}:{selected}"
+if workspace_key not in st.session_state:
+    st.session_state[workspace_key] = st.session_state.get("last_workspace_view", "Chat")
+view = st.radio("Workspace", ["Chat", "Find passages", "Notebook"], horizontal=True,
+                label_visibility="collapsed", key=workspace_key)
+st.session_state["last_workspace_view"] = view
 if view == "Notebook":
     st.subheader("Reading notebook")
     if not bookmarks:
