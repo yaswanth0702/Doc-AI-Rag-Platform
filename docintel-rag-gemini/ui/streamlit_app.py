@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import requests
@@ -29,8 +30,10 @@ div[role="radiogroup"][aria-label="Workspace"] > label:has(input:checked) {
 with st.sidebar:
     st.header("DocIntel")
     library = st.container()
-    with st.expander("Connection settings"):
-        api_url = st.text_input("Backend URL", value="http://localhost:8000").rstrip("/")
+    api_url = os.getenv("DOCINTEL_BACKEND_URL", "").strip().rstrip("/")
+    if not api_url:
+        with st.expander("Connection settings"):
+            api_url = st.text_input("Backend URL", value="http://localhost:8000").rstrip("/")
 
 documents = st.session_state.setdefault("documents", {}).setdefault(api_url, {})
 
@@ -192,24 +195,43 @@ if view == "Find passages":
         search_query = st.text_input("Search this document", placeholder="Enter a concept, name, or reference code")
         mode = st.radio("Search method", ["Hybrid", "Exact phrase"], horizontal=True,
                         help="Hybrid combines meaning and keywords. Exact phrase matches text across spaces and line breaks.")
+        page = None
+        if Path(document["name"]).suffix.lower() == ".pdf":
+            page = st.number_input("PDF page (optional)", min_value=1, value=None, step=1, placeholder="All pages")
         submitted = st.form_submit_button("Find passages", type="primary")
     if submitted:
         query = search_query.strip()
         if query:
+            payload = {"doc_id": selected, "query": query, "mode": "exact" if mode == "Exact phrase" else "hybrid"}
+            if page is not None:
+                payload["page"] = page
             with st.spinner("Searching this document…"):
                 result = post(
-                    "/search", json={"doc_id": selected, "query": query, "mode": "exact" if mode == "Exact phrase" else "hybrid"},
+                    "/search", json=payload,
                     headers={"Authorization": f"Bearer {document['token']}"},
                 )
             if result is not None:
-                document["search"] = {"query": query, "mode": mode, "passages": result["passages"]}
+                document["search"] = {"query": query, "mode": mode, "page": page, "passages": result["passages"]}
         else:
             st.info("Enter a phrase or topic to search.")
     last_search = document.get("search")
     if last_search:
-        st.caption(f"{last_search['mode']} results for “{last_search['query']}”")
+        scope = f" · Page {last_search['page']}" if last_search.get("page") is not None else ""
+        st.caption(f"{last_search['mode']} results for “{last_search['query']}”{scope}")
         if not last_search["passages"]:
-            st.info("No matching passages. Try a shorter phrase or switch to Hybrid.")
+            if last_search.get("page") is not None:
+                st.info("No matching passages on this page. Clear the page field to search the full document.")
+            else:
+                st.info("No matching passages. Try a shorter phrase or switch to Hybrid.")
+        if last_search["passages"]:
+            lines = [f"# {document['name']}", "", f"Search: {last_search['query']}",
+                     f"Method: {last_search['mode']}{scope}"]
+            for number, source in enumerate(last_search["passages"], 1):
+                lines.extend(["", "## " + source_label(number, source), "", source["passage"]])
+            st.download_button(
+                "Download search results", "\n".join(lines) + "\n",
+                file_name=f"{Path(document['name']).stem}-search.md", mime="text/markdown",
+            )
         for number, source in enumerate(last_search["passages"], 1):
             with st.container(border=True):
                 show_source(number, source, f"search:{number}")

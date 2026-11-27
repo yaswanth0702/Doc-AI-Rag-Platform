@@ -44,6 +44,12 @@ def keyword_ranks(question, passages):
     return {chunk_id: rank for rank, chunk_id in enumerate(ordered, 1)}
 
 
+def passages_on_page(passages, page: int | None):
+    if page is None:
+        return passages
+    return [passage for passage in passages if passage.get("page") == page]
+
+
 def exact_passages(query, passages, limit):
     phrase = " ".join(query.casefold().split())
     matches = []
@@ -61,12 +67,15 @@ class Retriever:
         self.embedder = embedder
         self.top_k = top_k
 
-    def retrieve(self, question: str) -> list[dict]:
-        passages = self.store.metadata
+    def retrieve(self, question: str, page: int | None = None) -> list[dict]:
+        passages = passages_on_page(self.store.metadata, page)
         if not passages or self.top_k <= 0:
             return []
         vector = self.embedder.embed_query(question)
-        hits = self.store.search(vector, len(passages))
+        hits = self.store.search(vector, len(self.store.metadata))
+        if page is not None:
+            # Compute both rank positions within the page before combining them or applying top_k.
+            hits = [(score, row) for score, row in hits if row.get("page") == page]
         lexical = keyword_ranks(question, passages)
         ranked = []
         for semantic_rank, (score, passage) in enumerate(hits, 1):

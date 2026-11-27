@@ -22,6 +22,7 @@ class SearchRequest(BaseModel):
     query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
     mode: Literal["hybrid", "exact"] = "hybrid"
     limit: int = Field(default=6, ge=1, le=20)
+    page: int | None = Field(default=None, ge=1, strict=True)
 
 class Passage(BaseModel):
     doc_id: str

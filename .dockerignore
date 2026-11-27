@@ -1,0 +1,13 @@
+**
+!Dockerfile
+!deploy/
+!deploy/serve.py
+!docintel-rag-gemini/
+!docintel-rag-gemini/ui/
+!docintel-rag-gemini/ui/streamlit_app.py
+!docintel-rag-gemini/ui/requirements.txt
+!docintel-rag-gemini/backend/
+!docintel-rag-gemini/backend/app/
+!docintel-rag-gemini/backend/app/*.py
+!docintel-rag-gemini/backend/app/rag/
+!docintel-rag-gemini/backend/app/rag/*.py

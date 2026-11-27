@@ -15,7 +15,7 @@ from .rag.embedder import Embedder
 from .rag.generator import GenerationUnavailable, generate_answer
 from .rag.guardrails import guard_question
 from .rag.ingest import build_chunks_from_file
-from .rag.retriever import Retriever, exact_passages
+from .rag.retriever import Retriever, exact_passages, passages_on_page
 from .rag.vector_store import FaissStore
 
 app = FastAPI(title="DocIntel-RAG (Gemini)", version="1.0")
@@ -105,9 +105,9 @@ def passage_fields(row):
 def search(req: SearchRequest, authorization: str | None = Header(default=None)):
     store = document_store(req.doc_id, authorization)
     if req.mode == "exact":
-        rows = exact_passages(req.query, store.metadata, req.limit)
+        rows = exact_passages(req.query, passages_on_page(store.metadata, req.page), req.limit)
     else:
-        rows = Retriever(store, get_embedder(), top_k=req.limit).retrieve(req.query)
+        rows = Retriever(store, get_embedder(), top_k=req.limit).retrieve(req.query, page=req.page)
     return SearchResponse(passages=[Passage(**passage_fields(row)) for row in rows])
 
 

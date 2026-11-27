@@ -68,3 +68,11 @@ Use **Save passage** under a chat citation or a passage search result. Open **No
 ### Passage boundaries and PDF spacing
 
 New uploads are split at line, bullet, or sentence boundaries when possible. Long sentences fall back to word boundaries. Each passage stays within a single PDF page and within the 900-character limit. For PDF text, the layout extractor can supply missing spaces when it agrees with the plain extractor on character order. Re-upload an existing document to build a new index with these changes.
+
+## Page search and result downloads
+
+In **Find passages**, leave the page field empty to search the whole PDF, or enter a page number to limit both exact and hybrid search to that page. The API accepts an optional positive integer `page` on `POST /search`. Click **Download search results** to save the current query, search method, and returned passages with their page references as Markdown.
+
+## Container deployment
+
+Build from the repository root with `docker build -t docintel .`, then run `docker run --rm -p 7860:7860 -e GEMINI_API_KEY docintel` and open `http://localhost:7860`. The container serves Streamlit on `PORT` (default 7860) and keeps FastAPI on loopback. Only the backend receives the Gemini key. The first upload loads the embedding model. Set the key as a service secret if chat generation is needed. Document files and indexes are stored under `/data`; use persistent storage if they should survive container replacement. Chat history and notebooks are session-local.
