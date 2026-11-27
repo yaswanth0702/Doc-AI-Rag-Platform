@@ -2,6 +2,8 @@
 
 Upload a PDF or text file, ask questions about it, and inspect the retrieved passages and page numbers. FastAPI extracts and chunks the text, SentenceTransformers embeds the chunks locally, and FAISS indexes each document separately. Gemini receives the question and the selected passages to generate the answer.
 
+[Agent contributions and release test results](docs/agent-contributions.md)
+
 ## Run locally
 
 Use Python 3.11 or 3.12. From the repository root on macOS or Linux:
